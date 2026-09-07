@@ -12,6 +12,8 @@ export interface EnvironmentValidationResult {
   isFirebaseAdminConfigured: boolean;
   hasGeminiKey: boolean;
   isBmoniConfigured: boolean;
+  persistenceMode?: 'file' | 'database' | 'test';
+  isDatabaseConfigured?: boolean;
 }
 
 export const CANONICAL_GEMINI_MODEL = 'gemini-3.7-flash';
@@ -61,6 +63,17 @@ export function validateEnvironment(env = process.env): EnvironmentValidationRes
     warnings.push('BMONI credentials are not configured. Financial execution boundary will truthfully report UNAVAILABLE / NOT_CONNECTED.');
   }
 
+  // Persistence Configuration check (PostgreSQL / Database Mode)
+  const persistenceModeSetting = (env.STRUCTURA_PERSISTENCE_MODE || '').toLowerCase();
+  const isDatabaseMode = persistenceModeSetting === 'database';
+  const hasDatabaseUrl = Boolean(env.DATABASE_URL && env.DATABASE_URL.trim().length > 0);
+
+  if (isDatabaseMode && !hasDatabaseUrl) {
+    errors.push('STRUCTURA_PERSISTENCE_MODE is set to "database" but DATABASE_URL is not configured.');
+  } else if (mode === 'production' && persistenceModeSetting === 'database' && !hasDatabaseUrl) {
+    errors.push('DATABASE_URL is required when STRUCTURA_PERSISTENCE_MODE is set to "database" in production.');
+  }
+
   const isValid = errors.length === 0;
 
   if (!isValid) {
@@ -79,5 +92,7 @@ export function validateEnvironment(env = process.env): EnvironmentValidationRes
     isFirebaseAdminConfigured,
     hasGeminiKey,
     isBmoniConfigured,
+    persistenceMode: isDatabaseMode ? 'database' : (persistenceModeSetting === 'test' ? 'test' : 'file'),
+    isDatabaseConfigured: hasDatabaseUrl,
   };
 }

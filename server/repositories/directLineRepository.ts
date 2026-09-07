@@ -376,10 +376,13 @@ export class HybridDirectLineRepository implements IDirectLineRepository {
 
 class DelegatingDirectLineRepository implements IDirectLineRepository {
   private hybrid = new HybridDirectLineRepository();
-  private postgres = new PostgresDirectLineRepository();
+  private postgres: PostgresDirectLineRepository | null = null;
 
   private getDelegate(): IDirectLineRepository {
     if (getPersistenceMode() === 'database') {
+      if (!this.postgres) {
+        this.postgres = new PostgresDirectLineRepository();
+      }
       return this.postgres;
     }
     return this.hybrid;

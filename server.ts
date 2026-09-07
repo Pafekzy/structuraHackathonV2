@@ -22,6 +22,7 @@ import { authRateLimiter, aiRateLimiter, financialRateLimiter, webhookRateLimite
 import { errorHandler } from './server/middleware/errorHandler';
 import { validateEnvironment } from './server/config/environment';
 import { logger } from './server/utils/logger';
+import { dbManager, getPersistenceMode } from './server/db/database';
 
 dotenv.config();
 
@@ -57,8 +58,40 @@ app.get('/api/health', (req, res) => {
 });
 
 // Operational Readiness endpoint (Readiness)
-app.get('/api/readiness', (req, res) => {
+app.get('/api/readiness', async (req, res) => {
   const currentEnv = validateEnvironment();
+  const persistenceMode = getPersistenceMode();
+  let persistenceStatus = 'AVAILABLE';
+  let persistenceType = persistenceMode === 'database' ? 'POSTGRESQL' : 'HYBRID_FILE_FIRESTORE';
+  let dbHealth: { connected: boolean; latencyMs?: number; error?: string } | null = null;
+  let migrationSummary: any = null;
+
+  if (persistenceMode === 'database') {
+    try {
+      dbHealth = await dbManager.checkHealth();
+      if (!dbHealth.connected) {
+        persistenceStatus = 'DISCONNECTED';
+        currentEnv.errors.push(`Database connection failed: ${dbHealth.error || 'Connection failed'}`);
+        currentEnv.isValid = false;
+      } else {
+        const { schemaMigrator } = await import('./server/db/migrator');
+        const status = await schemaMigrator.getStatus();
+        migrationSummary = {
+          appliedCount: status.appliedCount,
+          pendingCount: status.pendingCount,
+          totalMigrations: status.totalMigrations,
+        };
+        if (status.pendingCount > 0 && currentEnv.mode === 'production') {
+          currentEnv.warnings.push(`Pending database migrations detected (${status.pendingCount} pending). Run migrations before serving production traffic.`);
+        }
+      }
+    } catch (err: any) {
+      persistenceStatus = 'ERROR';
+      currentEnv.errors.push(`Database health check failed: ${err.message}`);
+      currentEnv.isValid = false;
+    }
+  }
+
   res.status(currentEnv.isValid ? 200 : 503).json({
     status: currentEnv.isValid ? 'ready' : 'not_ready',
     mode: currentEnv.mode,
@@ -78,8 +111,11 @@ app.get('/api/readiness', (req, res) => {
       status: currentEnv.isBmoniConfigured ? 'CONNECTED' : 'NOT_CONNECTED',
     },
     persistence: {
-      status: 'AVAILABLE',
-      type: 'HYBRID_FILE_FIRESTORE',
+      status: persistenceStatus,
+      type: persistenceType,
+      connected: dbHealth ? dbHealth.connected : undefined,
+      latencyMs: dbHealth?.latencyMs,
+      migrations: migrationSummary || undefined,
     },
     errors: currentEnv.errors,
     warnings: currentEnv.warnings,

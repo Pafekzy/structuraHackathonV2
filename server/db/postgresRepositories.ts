@@ -507,64 +507,71 @@ export class PostgresProjectRepository implements IProjectRepository {
 // 4. Postgres Milestone Repository
 // ==========================================================
 export class PostgresMilestoneRepository implements IMilestoneRepository {
-  async createMilestone(milestone: Milestone): Promise<Milestone> {
+  async createMilestone(milestone: ProjectMilestone): Promise<ProjectMilestone> {
     await dbManager.query(
-      `INSERT INTO milestones (id, project_id, sequence_number, code, title, description, category, weight_percentage, target_date, status, contract_value_usd, payable_amount_usd, created_at, updated_at, is_demo, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      `INSERT INTO milestones (id, project_id, name, phase_order, planned_start_date, planned_end_date, actual_end_date, status, progress_percentage, cost_allocation_usd, financial_status, qa_qc_status, owner_decision_status, payout_approved, escrow_status, active_inspection_id, active_ncr_id, created_at, updated_at, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        ON CONFLICT (id) DO UPDATE SET
-         sequence_number = EXCLUDED.sequence_number,
-         code = EXCLUDED.code,
-         title = EXCLUDED.title,
-         description = EXCLUDED.description,
-         category = EXCLUDED.category,
-         weight_percentage = EXCLUDED.weight_percentage,
-         target_date = EXCLUDED.target_date,
+         name = EXCLUDED.name,
+         phase_order = EXCLUDED.phase_order,
+         planned_start_date = EXCLUDED.planned_start_date,
+         planned_end_date = EXCLUDED.planned_end_date,
+         actual_end_date = EXCLUDED.actual_end_date,
          status = EXCLUDED.status,
-         contract_value_usd = EXCLUDED.contract_value_usd,
-         payable_amount_usd = EXCLUDED.payable_amount_usd,
+         progress_percentage = EXCLUDED.progress_percentage,
+         cost_allocation_usd = EXCLUDED.cost_allocation_usd,
+         financial_status = EXCLUDED.financial_status,
+         qa_qc_status = EXCLUDED.qa_qc_status,
+         owner_decision_status = EXCLUDED.owner_decision_status,
+         active_inspection_id = EXCLUDED.active_inspection_id,
+         active_ncr_id = EXCLUDED.active_ncr_id,
          updated_at = EXCLUDED.updated_at,
          metadata = EXCLUDED.metadata`,
       [
         milestone.id,
         milestone.projectId,
-        milestone.sequenceNumber || 1,
-        milestone.code || 'MS-01',
         milestone.title,
-        milestone.description || null,
-        milestone.category || 'STRUCTURAL',
-        milestone.weightPercentage || 0,
-        milestone.targetDate ? new Date(milestone.targetDate) : null,
-        milestone.status || 'DRAFT',
-        milestone.contractValueUSD || 0,
-        milestone.payableAmountUSD || 0,
+        milestone.sequence || 1,
+        milestone.plannedStartDate || null,
+        milestone.plannedEndDate || null,
+        null,
+        milestone.status || 'NOT_STARTED',
+        milestone.progressPercentage || 0,
+        milestone.costAllocationUSD || 0,
+        milestone.financialStatus || 'AWAITING_GOVERNANCE',
+        milestone.qaQcStatus || 'PENDING',
+        milestone.ownerDecisionStatus || 'PENDING',
+        false,
+        'Not Reached',
+        milestone.activeInspectionId || null,
+        milestone.activeNcrId || null,
         milestone.createdAt ? new Date(milestone.createdAt) : new Date(),
         milestone.updatedAt ? new Date(milestone.updatedAt) : new Date(),
-        milestone.isDemo ?? false,
-        JSON.stringify(milestone.metadata || {}),
+        JSON.stringify(milestone),
       ]
     );
     return milestone;
   }
 
-  async getMilestoneById(id: string): Promise<Milestone | null> {
+  async getMilestoneById(id: string): Promise<ProjectMilestone | null> {
     const res = await dbManager.query('SELECT * FROM milestones WHERE id = $1', [id]);
     if (res.rows.length === 0) return null;
     return this.mapMilestone(res.rows[0]);
   }
 
-  async listMilestonesByProject(projectId: string): Promise<Milestone[]> {
-    const res = await dbManager.query('SELECT * FROM milestones WHERE project_id = $1 ORDER BY sequence_number ASC', [projectId]);
+  async listMilestonesByProject(projectId: string): Promise<ProjectMilestone[]> {
+    const res = await dbManager.query('SELECT * FROM milestones WHERE project_id = $1 ORDER BY phase_order ASC', [projectId]);
     return res.rows.map(r => this.mapMilestone(r));
   }
 
-  async getMilestonesByProjectId(projectId: string): Promise<Milestone[]> {
+  async getMilestonesByProjectId(projectId: string): Promise<ProjectMilestone[]> {
     return this.listMilestonesByProject(projectId);
   }
 
-  async updateMilestone(id: string, updates: Partial<Milestone>): Promise<Milestone> {
+  async updateMilestone(id: string, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone> {
     const current = await this.getMilestoneById(id);
     if (!current) throw new Error(`Milestone ${id} not found`);
-    const updated: Milestone = {
+    const updated: ProjectMilestone = {
       ...current,
       ...updates,
       updatedAt: new Date().toISOString(),
@@ -573,25 +580,36 @@ export class PostgresMilestoneRepository implements IMilestoneRepository {
     return updated;
   }
 
-  private mapMilestone(row: any): Milestone {
+  private mapMilestone(row: any): ProjectMilestone {
     const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
     return {
       id: row.id,
       projectId: row.project_id,
-      sequenceNumber: Number(row.sequence_number) || 1,
-      code: row.code,
-      title: row.title,
-      description: row.description || undefined,
-      category: row.category,
-      weightPercentage: Number(row.weight_percentage) || 0,
-      targetDate: row.target_date instanceof Date ? row.target_date.toISOString() : (row.target_date || undefined),
+      title: row.name || row.title || meta.title || 'Milestone',
+      description: row.description || meta.description || '',
+      sequence: Number(row.phase_order || row.sequence || meta.sequence || 1),
+      discipline: meta.discipline || 'Structural',
       status: row.status,
-      contractValueUSD: Number(row.contract_value_usd) || 0,
-      payableAmountUSD: Number(row.payable_amount_usd) || 0,
+      requiresProjectDirectorReview: meta.requiresProjectDirectorReview ?? true,
+      requiresQaQcReview: meta.requiresQaQcReview ?? true,
+      requiresOwnerApproval: meta.requiresOwnerApproval ?? true,
+      contractorSubmissionStatus: meta.contractorSubmissionStatus || 'NONE',
+      technicalReviewStatus: meta.technicalReviewStatus || 'NONE',
+      qaQcStatus: row.qa_qc_status || meta.qaQcStatus || 'PENDING',
+      ownerDecisionStatus: row.owner_decision_status || meta.ownerDecisionStatus || 'PENDING',
+      financialStatus: row.financial_status || meta.financialStatus || 'AWAITING_GOVERNANCE',
+      plannedStartDate: row.planned_start_date || meta.plannedStartDate || undefined,
+      plannedEndDate: row.planned_end_date || meta.plannedEndDate || undefined,
+      costAllocationUSD: Number(row.cost_allocation_usd) || meta.costAllocationUSD || 0,
+      progressPercentage: Number(row.progress_percentage) || meta.progressPercentage || 0,
+      relatedEvidenceIds: meta.relatedEvidenceIds || [],
+      activeSubmissionId: meta.activeSubmissionId,
+      activeInspectionId: row.active_inspection_id || meta.activeInspectionId || undefined,
+      activeNcrId: row.active_ncr_id || meta.activeNcrId || undefined,
+      createdByUserId: meta.createdByUserId || 'usr_demo_director',
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
-      isDemo: Boolean(row.is_demo),
-      metadata: meta,
+      isDemo: Boolean(row.is_demo ?? meta.isDemo),
     };
   }
 }
@@ -600,7 +618,7 @@ export class PostgresMilestoneRepository implements IMilestoneRepository {
 // 5. Postgres Evidence Repository
 // ==========================================================
 export class PostgresEvidenceRepository implements IEvidenceRepository {
-  async createEvidence(evidence: EvidenceItem): Promise<EvidenceItem> {
+  async createEvidence(evidence: ProjectEvidence): Promise<ProjectEvidence> {
     await dbManager.query(
       `INSERT INTO evidence (id, project_id, milestone_id, title, description, file_url, file_type, file_size_bytes, uploaded_by_user_id, uploaded_by_role, status, tags, hash_sha256, created_at, updated_at, is_demo, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -620,14 +638,14 @@ export class PostgresEvidenceRepository implements IEvidenceRepository {
         evidence.milestoneId || null,
         evidence.title,
         evidence.description || null,
-        evidence.fileUrl,
-        evidence.fileType,
-        evidence.fileSizeBytes || 0,
+        evidence.fileName || '',
+        evidence.mimeType || evidence.evidenceType || 'SITE_PHOTO',
+        evidence.fileSize || 0,
         evidence.uploadedByUserId,
         evidence.uploadedByRole,
-        evidence.status || 'VERIFIED',
-        JSON.stringify(evidence.tags || []),
-        evidence.hashSha256 || null,
+        evidence.storageStatus || 'VERIFIED',
+        JSON.stringify([]),
+        evidence.storageReference || null,
         evidence.createdAt ? new Date(evidence.createdAt) : new Date(),
         evidence.updatedAt ? new Date(evidence.updatedAt) : new Date(),
         evidence.isDemo ?? false,
@@ -637,26 +655,26 @@ export class PostgresEvidenceRepository implements IEvidenceRepository {
     return evidence;
   }
 
-  async getEvidenceById(id: string): Promise<EvidenceItem | null> {
+  async getEvidenceById(id: string): Promise<ProjectEvidence | null> {
     const res = await dbManager.query('SELECT * FROM evidence WHERE id = $1', [id]);
     if (res.rows.length === 0) return null;
     return this.mapEvidence(res.rows[0]);
   }
 
-  async listEvidenceByProject(projectId: string): Promise<EvidenceItem[]> {
+  async listEvidenceByProject(projectId: string): Promise<ProjectEvidence[]> {
     const res = await dbManager.query('SELECT * FROM evidence WHERE project_id = $1 ORDER BY created_at DESC', [projectId]);
     return res.rows.map(r => this.mapEvidence(r));
   }
 
-  async listEvidenceByMilestone(milestoneId: string): Promise<EvidenceItem[]> {
-    const res = await dbManager.query('SELECT * FROM evidence WHERE milestone_id = $1 ORDER BY created_at DESC', [milestoneId]);
+  async listEvidenceByMilestone(projectId: string, milestoneId: string): Promise<ProjectEvidence[]> {
+    const res = await dbManager.query('SELECT * FROM evidence WHERE project_id = $1 AND milestone_id = $2 ORDER BY created_at DESC', [projectId, milestoneId]);
     return res.rows.map(r => this.mapEvidence(r));
   }
 
-  async updateEvidence(id: string, updates: Partial<EvidenceItem>): Promise<EvidenceItem> {
+  async updateEvidence(id: string, updates: Partial<ProjectEvidence>): Promise<ProjectEvidence> {
     const current = await this.getEvidenceById(id);
     if (!current) throw new Error(`Evidence ${id} not found`);
-    const updated: EvidenceItem = {
+    const updated: ProjectEvidence = {
       ...current,
       ...updates,
       updatedAt: new Date().toISOString(),
@@ -665,23 +683,24 @@ export class PostgresEvidenceRepository implements IEvidenceRepository {
     return updated;
   }
 
-  private mapEvidence(row: any): EvidenceItem {
+  private mapEvidence(row: any): ProjectEvidence {
     const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
-    const tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags || []);
     return {
       id: row.id,
       projectId: row.project_id,
       milestoneId: row.milestone_id || undefined,
-      title: row.title,
-      description: row.description || undefined,
-      fileUrl: row.file_url,
-      fileType: row.file_type,
-      fileSizeBytes: Number(row.file_size_bytes) || 0,
       uploadedByUserId: row.uploaded_by_user_id,
-      uploadedByRole: row.uploaded_by_role,
-      status: row.status,
-      tags,
-      hashSha256: row.hash_sha256 || undefined,
+      uploadedByRole: row.uploaded_by_role || 'GENERAL_CONTRACTOR',
+      uploadedByName: row.uploaded_by_name || 'Project Member',
+      evidenceType: row.evidence_type || 'SITE_PHOTO',
+      title: row.title,
+      description: row.description || '',
+      fileName: row.file_url || row.file_name || 'evidence.bin',
+      mimeType: row.file_type || row.mime_type || 'application/octet-stream',
+      fileSize: Number(row.file_size_bytes || row.file_size) || 0,
+      storageProvider: row.storage_provider || 'METADATA_ONLY',
+      storageStatus: row.status || row.storage_status || 'RECORDED_METADATA',
+      storageReference: row.hash_sha256 || row.storage_reference || row.id,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
@@ -709,9 +728,9 @@ export class PostgresSubmissionRepository implements ISubmissionRepository {
         submission.milestoneId,
         submission.submittedByUserId,
         submission.submittedByName,
-        submission.submissionNumber || 1,
+        submission.revisionNumber || 1,
         submission.status || 'SUBMITTED',
-        submission.narrative || null,
+        submission.summary || submission.contractorNotes || null,
         JSON.stringify(submission.evidenceIds || []),
         submission.createdAt ? new Date(submission.createdAt) : new Date(),
         submission.updatedAt ? new Date(submission.updatedAt) : new Date(),
@@ -760,11 +779,14 @@ export class PostgresSubmissionRepository implements ISubmissionRepository {
       projectId: row.project_id,
       milestoneId: row.milestone_id,
       submittedByUserId: row.submitted_by_user_id,
+      submittedByRole: row.submitted_by_role || 'GENERAL_CONTRACTOR',
       submittedByName: row.submitted_by_name,
-      submissionNumber: Number(row.submission_number) || 1,
       status: row.status,
-      narrative: row.narrative || '',
+      title: row.title || 'Milestone Submission',
+      summary: row.narrative || row.summary || '',
+      contractorNotes: row.contractor_notes || row.narrative || '',
       evidenceIds: evIds,
+      revisionNumber: Number(row.submission_number || row.revision_number) || 1,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
@@ -788,13 +810,13 @@ export class PostgresTechnicalReviewRepository implements ITechnicalReviewReposi
         review.id,
         review.submissionId,
         review.projectId,
-        review.reviewerUserId,
-        review.reviewerName,
-        review.reviewerRole,
+        review.reviewedByUserId,
+        review.reviewedByName,
+        review.reviewedByRole,
         review.decision,
-        review.comments || null,
+        review.reviewNotes || null,
         review.createdAt ? new Date(review.createdAt) : new Date(),
-        review.updatedAt ? new Date(review.updatedAt) : new Date(),
+        review.completedAt ? new Date(review.completedAt) : new Date(),
         review.isDemo ?? false,
       ]
     );
@@ -823,7 +845,6 @@ export class PostgresTechnicalReviewRepository implements ITechnicalReviewReposi
     const updated: ProjectDirectorTechnicalReview = {
       ...current,
       ...updates,
-      updatedAt: new Date().toISOString(),
     };
     await this.createReview(updated);
     return updated;
@@ -834,13 +855,14 @@ export class PostgresTechnicalReviewRepository implements ITechnicalReviewReposi
       id: row.id,
       submissionId: row.submission_id,
       projectId: row.project_id,
-      reviewerUserId: row.reviewer_user_id,
-      reviewerName: row.reviewer_name,
-      reviewerRole: row.reviewer_role,
+      milestoneId: row.milestone_id || '',
+      reviewedByUserId: row.reviewer_user_id || row.reviewed_by_user_id,
+      reviewedByName: row.reviewer_name || row.reviewed_by_name,
+      reviewedByRole: row.reviewer_role || row.reviewed_by_role || 'SENIOR_PROJECT_DIRECTOR',
       decision: row.decision,
-      comments: row.comments || undefined,
+      reviewNotes: row.comments || row.review_notes || '',
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      completedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : (row.completed_at ? String(row.completed_at) : undefined),
       isDemo: Boolean(row.is_demo),
     };
   }
@@ -952,12 +974,12 @@ export class PostgresNcrRepository implements INCRRepository {
         ncr.description || null,
         ncr.severity,
         ncr.status,
-        ncr.createdByUserId,
-        ncr.createdByName,
+        ncr.raisedByUserId,
+        ncr.raisedByName,
         ncr.createdAt ? new Date(ncr.createdAt) : new Date(),
-        ncr.updatedAt ? new Date(ncr.updatedAt) : new Date(),
+        ncr.createdAt ? new Date(ncr.createdAt) : new Date(),
         ncr.isDemo ?? false,
-        JSON.stringify(ncr.metadata || {}),
+        JSON.stringify({}),
       ]
     );
     return ncr;
@@ -985,30 +1007,33 @@ export class PostgresNcrRepository implements INCRRepository {
     const updated: NonConformanceReport = {
       ...current,
       ...updates,
-      updatedAt: new Date().toISOString(),
     };
     await this.createNCR(updated);
     return updated;
   }
 
   private mapNCR(row: any): NonConformanceReport {
-    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
     return {
       id: row.id,
       projectId: row.project_id,
-      milestoneId: row.milestone_id || undefined,
+      milestoneId: row.milestone_id || '',
       inspectionId: row.inspection_id || undefined,
       number: row.number,
       title: row.title,
       description: row.description || '',
       severity: row.severity,
       status: row.status,
-      createdByUserId: row.created_by_user_id,
-      createdByName: row.created_by_name,
+      raisedByUserId: row.created_by_user_id || row.raised_by_user_id || 'usr_demo_qaqc',
+      raisedByName: row.created_by_name || row.raised_by_name || 'QA/QC Lead',
+      raisedByRole: row.raised_by_role || 'STRUCTURAL_QA_QC_AUDITOR',
+      assignedToUserId: row.assigned_to_user_id || 'usr_demo_contractor',
+      assignedToName: row.assigned_to_name || 'General Contractor',
+      assignedToRole: row.assigned_to_role || 'GENERAL_CONTRACTOR',
+      requirementReference: row.requirement_reference || 'ACI 318-19 / ASTM C39',
+      observedCondition: row.observed_condition || row.description || '',
+      correctiveActionRequired: row.corrective_action_required || 'Review and remediate condition.',
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
-      metadata: meta,
     };
   }
 }
@@ -1030,13 +1055,13 @@ export class PostgresOwnerDecisionRepository implements IOwnerDecisionRepository
         decision.id,
         decision.projectId,
         decision.milestoneId,
-        decision.ownerUserId,
-        decision.ownerName,
+        decision.decidedByUserId,
+        decision.decidedByName,
         decision.decision,
-        decision.notes || null,
-        decision.payableAmountUSD || 0,
+        decision.decisionNotes || null,
+        0,
         decision.createdAt ? new Date(decision.createdAt) : new Date(),
-        decision.updatedAt ? new Date(decision.updatedAt) : new Date(),
+        decision.decidedAt ? new Date(decision.decidedAt) : new Date(),
         decision.isDemo ?? false,
       ]
     );
@@ -1064,13 +1089,16 @@ export class PostgresOwnerDecisionRepository implements IOwnerDecisionRepository
       id: row.id,
       projectId: row.project_id,
       milestoneId: row.milestone_id,
-      ownerUserId: row.owner_user_id,
-      ownerName: row.owner_name,
+      decidedByUserId: row.owner_user_id || row.decided_by_user_id || 'usr_demo_owner',
+      decidedByName: row.owner_name || row.decided_by_name || 'Owner Representative',
+      decidedByRole: row.decided_by_role || 'OWNER_CLIENT',
       decision: row.decision,
-      notes: row.notes || undefined,
-      payableAmountUSD: Number(row.payable_amount_usd) || 0,
+      decisionNotes: row.notes || row.decision_notes || '',
+      financialAuthorized: Boolean(row.financial_authorized),
+      financialStatus: row.financial_status || 'NOT_AUTHORIZED',
+      financialProviderStatus: row.financial_provider_status || 'NOT_CONFIGURED',
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      decidedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : (row.decided_at ? String(row.decided_at) : String(row.created_at)),
       isDemo: Boolean(row.is_demo),
     };
   }
@@ -1284,6 +1312,17 @@ export class PostgresRfiRepository implements IRFIRepository {
 // ==========================================================
 // 13. Postgres Direct Line Repository
 // ==========================================================
+function getChannelParticipantRoles(channelType: ChannelType): [ProjectRole, ProjectRole] {
+  switch (channelType) {
+    case 'OWNER_DIRECTOR':
+      return ['OWNER_CLIENT', 'SENIOR_PROJECT_DIRECTOR'];
+    case 'OWNER_QAQC':
+      return ['OWNER_CLIENT', 'STRUCTURAL_QA_QC_AUDITOR'];
+    case 'DIRECTOR_CONTRACTOR':
+      return ['SENIOR_PROJECT_DIRECTOR', 'GENERAL_CONTRACTOR'];
+  }
+}
+
 export class PostgresDirectLineRepository implements IDirectLineRepository {
   async getOrCreateConversation(projectId: string, channelType: ChannelType): Promise<ProjectConversation> {
     const convs = await this.getConversationsByProject(projectId);
@@ -1296,7 +1335,7 @@ export class PostgresDirectLineRepository implements IDirectLineRepository {
       id,
       projectId,
       channelType,
-      title: `${channelType.replace(/_/g, ' ')} Channel`,
+      participantRoles: getChannelParticipantRoles(channelType),
       createdAt: now,
       updatedAt: now,
     };
@@ -1305,7 +1344,7 @@ export class PostgresDirectLineRepository implements IDirectLineRepository {
       `INSERT INTO project_conversations (id, project_id, channel_type, title, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO NOTHING`,
-      [conv.id, conv.projectId, conv.channelType, conv.title, new Date(conv.createdAt), new Date(conv.updatedAt)]
+      [conv.id, conv.projectId, conv.channelType, `${channelType.replace(/_/g, ' ')} Channel`, new Date(conv.createdAt), new Date(conv.updatedAt)]
     );
     return conv;
   }
@@ -1316,7 +1355,7 @@ export class PostgresDirectLineRepository implements IDirectLineRepository {
       id: r.id,
       projectId: r.project_id,
       channelType: r.channel_type,
-      title: r.title,
+      participantRoles: getChannelParticipantRoles(r.channel_type),
       lastMessageSnippet: r.last_message_snippet || undefined,
       lastMessageAt: r.last_message_at instanceof Date ? r.last_message_at.toISOString() : (r.last_message_at || undefined),
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
@@ -1332,7 +1371,7 @@ export class PostgresDirectLineRepository implements IDirectLineRepository {
       id: r.id,
       projectId: r.project_id,
       channelType: r.channel_type,
-      title: r.title,
+      participantRoles: getChannelParticipantRoles(r.channel_type),
       lastMessageSnippet: r.last_message_snippet || undefined,
       lastMessageAt: r.last_message_at instanceof Date ? r.last_message_at.toISOString() : (r.last_message_at || undefined),
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
@@ -1541,14 +1580,14 @@ export class PostgresCloseoutRepository implements ICloseoutRepository {
       [
         closeout.id,
         closeout.projectId,
-        closeout.overallStatus,
-        closeout.targetCompletionDate ? new Date(closeout.targetCompletionDate) : null,
+        closeout.status,
+        null,
         closeout.completedAt ? new Date(closeout.completedAt) : null,
         JSON.stringify(closeout.checklist || []),
         closeout.createdAt ? new Date(closeout.createdAt) : new Date(),
         closeout.updatedAt ? new Date(closeout.updatedAt) : new Date(),
         closeout.isDemo ?? false,
-        JSON.stringify(closeout.metadata || {}),
+        JSON.stringify({}),
       ]
     );
     return closeout;
@@ -1583,19 +1622,16 @@ export class PostgresCloseoutRepository implements ICloseoutRepository {
   }
 
   private mapCloseout(row: any): ProjectCloseout {
-    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
     const chk = typeof row.checklist === 'string' ? JSON.parse(row.checklist) : (row.checklist || []);
     return {
       id: row.id,
       projectId: row.project_id,
-      overallStatus: row.overall_status,
-      targetCompletionDate: row.target_completion_date instanceof Date ? row.target_completion_date.toISOString() : (row.target_completion_date || undefined),
+      status: row.status || row.overall_status || 'NOT_STARTED',
       completedAt: row.completed_at instanceof Date ? row.completed_at.toISOString() : (row.completed_at || undefined),
       checklist: chk,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
-      metadata: meta,
     };
   }
 }
@@ -1636,14 +1672,13 @@ export class PostgresPunchItemRepository implements IPunchItemRepository {
         item.assignedToName || null,
         item.assignedAt ? new Date(item.assignedAt) : null,
         item.verifiedByUserId || null,
-        item.verifiedByRole || null,
         item.verifiedByName || null,
         item.verifiedAt ? new Date(item.verifiedAt) : null,
         JSON.stringify(item.evidenceIds || []),
         item.createdAt ? new Date(item.createdAt) : new Date(),
         item.updatedAt ? new Date(item.updatedAt) : new Date(),
         item.isDemo ?? false,
-        JSON.stringify(item.metadata || {}),
+        JSON.stringify({}),
       ]
     );
     return item;
@@ -1687,7 +1722,6 @@ export class PostgresPunchItemRepository implements IPunchItemRepository {
   }
 
   private mapPunch(row: any): PunchItem {
-    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
     const evIds = typeof row.evidence_ids === 'string' ? JSON.parse(row.evidence_ids) : (row.evidence_ids || []);
     return {
       id: row.id,
@@ -1695,7 +1729,7 @@ export class PostgresPunchItemRepository implements IPunchItemRepository {
       milestoneId: row.milestone_id || undefined,
       number: row.number,
       title: row.title,
-      description: row.description || undefined,
+      description: row.description || '',
       category: row.category,
       priority: row.priority,
       status: row.status,
@@ -1708,14 +1742,12 @@ export class PostgresPunchItemRepository implements IPunchItemRepository {
       assignedToName: row.assigned_to_name || undefined,
       assignedAt: row.assigned_at instanceof Date ? row.assigned_at.toISOString() : (row.assigned_at || undefined),
       verifiedByUserId: row.verified_by_user_id || undefined,
-      verifiedByRole: row.verified_by_role || undefined,
       verifiedByName: row.verified_by_name || undefined,
       verifiedAt: row.verified_at instanceof Date ? row.verified_at.toISOString() : (row.verified_at || undefined),
       evidenceIds: evIds,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
-      metadata: meta,
     };
   }
 }
@@ -1746,12 +1778,12 @@ export class PostgresHandoverRepository implements IHandoverRepository {
         handover.projectId,
         handover.status,
         handover.targetHandoverDate ? new Date(handover.targetHandoverDate) : null,
-        handover.executedAt ? new Date(handover.executedAt) : null,
+        handover.actualHandoverDate ? new Date(handover.actualHandoverDate) : null,
         JSON.stringify(handover.checklist || []),
         handover.createdAt ? new Date(handover.createdAt) : new Date(),
         handover.updatedAt ? new Date(handover.updatedAt) : new Date(),
         handover.isDemo ?? false,
-        JSON.stringify(handover.metadata || {}),
+        JSON.stringify({}),
       ]
     );
     return handover;
@@ -1782,19 +1814,29 @@ export class PostgresHandoverRepository implements IHandoverRepository {
   }
 
   private mapHandover(row: any): ProjectHandover {
-    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
     const chk = typeof row.checklist === 'string' ? JSON.parse(row.checklist) : (row.checklist || []);
     return {
       id: row.id,
       projectId: row.project_id,
       status: row.status,
       targetHandoverDate: row.target_handover_date instanceof Date ? row.target_handover_date.toISOString() : (row.target_handover_date || undefined),
-      executedAt: row.executed_at instanceof Date ? row.executed_at.toISOString() : (row.executed_at || undefined),
+      actualHandoverDate: row.executed_at instanceof Date ? row.executed_at.toISOString() : (row.executed_at || undefined),
+      includedRecordCounts: {
+        milestones: 0,
+        evidence: 0,
+        technicalReviews: 0,
+        qaqcInspections: 0,
+        ncrs: 0,
+        ownerDecisions: 0,
+        projectDecisions: 0,
+        rfis: 0,
+        punchItems: 0,
+        closeoutItems: 0,
+      },
       checklist: chk,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
       isDemo: Boolean(row.is_demo),
-      metadata: meta,
     };
   }
 }
@@ -1804,30 +1846,35 @@ export class PostgresHandoverRepository implements IHandoverRepository {
 // ==========================================================
 export class PostgresAiInspectionRepository implements IAIInspectionRepository {
   async createAnalysis(analysis: AIInspectionAnalysis): Promise<AIInspectionAnalysis> {
+    const analysisResult = {
+      summary: analysis.summary,
+      observations: analysis.observations,
+      potentialIssues: analysis.potentialIssues,
+      riskIndicators: analysis.riskIndicators,
+      recommendations: analysis.recommendations,
+      rawResponseText: analysis.rawResponseText,
+      errorMessage: analysis.errorMessage,
+    };
+
     await dbManager.query(
-      `INSERT INTO ai_inspections (id, milestone_id, project_id, status, model, compliance_score, structural_observations, discrepancy_flags, recommended_actions, raw_response, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO ai_inspections (id, project_id, milestone_id, status, analysis_result, human_review_required, model, created_at, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
-         compliance_score = EXCLUDED.compliance_score,
-         structural_observations = EXCLUDED.structural_observations,
-         discrepancy_flags = EXCLUDED.discrepancy_flags,
-         recommended_actions = EXCLUDED.recommended_actions,
-         raw_response = EXCLUDED.raw_response,
-         updated_at = EXCLUDED.updated_at`,
+         analysis_result = EXCLUDED.analysis_result,
+         human_review_required = EXCLUDED.human_review_required,
+         model = EXCLUDED.model,
+         metadata = EXCLUDED.metadata`,
       [
         analysis.id,
-        analysis.milestoneId,
         analysis.projectId,
-        analysis.status,
-        analysis.model,
-        analysis.complianceScore || 0,
-        JSON.stringify(analysis.structuralObservations || []),
-        JSON.stringify(analysis.discrepancyFlags || []),
-        JSON.stringify(analysis.recommendedActions || []),
-        analysis.rawResponse || null,
+        analysis.milestoneId || null,
+        analysis.analysisStatus || 'COMPLETED',
+        JSON.stringify(analysisResult),
+        analysis.humanReviewRequired ?? true,
+        analysis.model || 'gemini-3.7-flash',
         analysis.createdAt ? new Date(analysis.createdAt) : new Date(),
-        analysis.updatedAt ? new Date(analysis.updatedAt) : new Date(),
+        JSON.stringify(analysis),
       ]
     );
     return analysis;
@@ -1855,26 +1902,32 @@ export class PostgresAiInspectionRepository implements IAIInspectionRepository {
     const updated: AIInspectionAnalysis = {
       ...current,
       ...updates,
-      updatedAt: new Date().toISOString(),
     };
     await this.createAnalysis(updated);
     return updated;
   }
 
   private mapAnalysis(row: any): AIInspectionAnalysis {
+    const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
+    const result = typeof row.analysis_result === 'string' ? JSON.parse(row.analysis_result) : (row.analysis_result || {});
     return {
       id: row.id,
-      milestoneId: row.milestone_id,
       projectId: row.project_id,
-      status: row.status,
-      model: row.model,
-      complianceScore: Number(row.compliance_score) || 0,
-      structuralObservations: typeof row.structural_observations === 'string' ? JSON.parse(row.structural_observations) : (row.structural_observations || []),
-      discrepancyFlags: typeof row.discrepancy_flags === 'string' ? JSON.parse(row.discrepancy_flags) : (row.discrepancy_flags || []),
-      recommendedActions: typeof row.recommended_actions === 'string' ? JSON.parse(row.recommended_actions) : (row.recommended_actions || []),
-      rawResponse: row.raw_response || undefined,
+      milestoneId: row.milestone_id,
+      inspectionId: meta.inspectionId,
+      evidenceIds: meta.evidenceIds || [],
+      analysisStatus: (row.status as any) || 'COMPLETED',
+      model: row.model || 'gemini-3.7-flash',
+      summary: result.summary || meta.summary || '',
+      observations: result.observations || meta.observations || [],
+      potentialIssues: result.potentialIssues || meta.potentialIssues || [],
+      riskIndicators: result.riskIndicators || meta.riskIndicators || [],
+      recommendations: result.recommendations || meta.recommendations || [],
+      humanReviewRequired: row.human_review_required ?? true,
+      rawResponseText: result.rawResponseText || meta.rawResponseText,
+      errorMessage: result.errorMessage || meta.errorMessage,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      isDemo: Boolean(row.is_demo ?? meta.isDemo),
     };
   }
 }

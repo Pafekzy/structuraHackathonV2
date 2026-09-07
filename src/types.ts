@@ -619,6 +619,7 @@ export interface RFI {
   createdAt: string;
   dueAt?: string;
   updatedAt: string;
+  isDemo?: boolean;
 }
 
 // ==========================================

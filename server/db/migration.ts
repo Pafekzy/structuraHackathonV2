@@ -12,7 +12,12 @@ import { databaseManager } from './database';
 import { safeReadJsonFile } from '../utils/atomicPersistence';
 import { logger } from '../utils/logger';
 
+export interface MigrationOptions {
+  dryRun?: boolean;
+}
+
 export interface MigrationSummary {
+  dryRun?: boolean;
   usersCount: number;
   organizationsCount: number;
   projectsCount: number;
@@ -37,8 +42,12 @@ export interface MigrationSummary {
   errors: string[];
 }
 
-export async function migrateJsonToPostgres(dataDir = path.join(process.cwd(), 'data')): Promise<MigrationSummary> {
+export async function migrateJsonToPostgres(
+  dataDir = path.join(process.cwd(), 'data'),
+  options: MigrationOptions = {}
+): Promise<MigrationSummary> {
   const summary: MigrationSummary = {
+    dryRun: options.dryRun ?? false,
     usersCount: 0,
     organizationsCount: 0,
     projectsCount: 0,
@@ -429,11 +438,17 @@ export async function migrateJsonToPostgres(dataDir = path.join(process.cwd(), '
       }
     }
 
+    if (options.dryRun) {
+      await client.query('ROLLBACK');
+      logger.info('Database migration dry run completed successfully (rolled back)', 'Migration', { summary });
+      return summary;
+    }
+
     await client.query('COMMIT');
-    logger.info('Database migration completed successfully', { summary });
+    logger.info('Database migration completed successfully', 'Migration', { summary });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    logger.error('Database migration failed, rolled back transaction', { error: err.message });
+    logger.error('Database migration failed, rolled back transaction', 'Migration', { error: err.message });
     summary.errors.push(err.message);
     throw err;
   } finally {

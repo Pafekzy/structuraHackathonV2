@@ -112,9 +112,16 @@ class DatabaseManager {
       this.isConnected = false;
     }
   }
+
+  public async initializeSchema(): Promise<void> {
+    const { SchemaMigrator } = await import('./migrator');
+    const migrator = new SchemaMigrator();
+    await migrator.runMigrations();
+  }
 }
 
 export const dbManager = new DatabaseManager();
+export const databaseManager = dbManager;
 
 export function getPersistenceMode(): PersistenceMode {
   const mode = process.env.STRUCTURA_PERSISTENCE_MODE?.toLowerCase();
