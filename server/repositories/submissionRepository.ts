@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ContractorMilestoneSubmission } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresSubmissionRepository } from '../db/postgresRepositories';
 
 export interface ISubmissionRepository {
   createSubmission(submission: ContractorMilestoneSubmission): Promise<ContractorMilestoneSubmission>;
@@ -194,4 +196,32 @@ export class HybridSubmissionRepository implements ISubmissionRepository {
   }
 }
 
-export const submissionRepository = new HybridSubmissionRepository();
+class DelegatingSubmissionRepository implements ISubmissionRepository {
+  private hybrid = new HybridSubmissionRepository();
+  private postgres = new PostgresSubmissionRepository();
+
+  private getDelegate(): ISubmissionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createSubmission(submission: ContractorMilestoneSubmission): Promise<ContractorMilestoneSubmission> {
+    return this.getDelegate().createSubmission(submission);
+  }
+  getSubmissionById(id: string): Promise<ContractorMilestoneSubmission | null> {
+    return this.getDelegate().getSubmissionById(id);
+  }
+  getSubmissionByMilestone(projectId: string, milestoneId: string): Promise<ContractorMilestoneSubmission | null> {
+    return this.getDelegate().getSubmissionByMilestone(projectId, milestoneId);
+  }
+  listSubmissionsByProject(projectId: string): Promise<ContractorMilestoneSubmission[]> {
+    return this.getDelegate().listSubmissionsByProject(projectId);
+  }
+  updateSubmission(id: string, updates: Partial<ContractorMilestoneSubmission>): Promise<ContractorMilestoneSubmission> {
+    return this.getDelegate().updateSubmission(id, updates);
+  }
+}
+
+export const submissionRepository = new DelegatingSubmissionRepository();

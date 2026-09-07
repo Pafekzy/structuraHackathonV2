@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { RFI, RFIStatus, RFIPriority, ProjectRole } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresRfiRepository } from '../db/postgresRepositories';
 
 export interface IRFIRepository {
   createRFI(data: {
@@ -246,4 +248,32 @@ export class HybridRFIRepository implements IRFIRepository {
   }
 }
 
-export const rfiRepository = new HybridRFIRepository();
+class DelegatingRFIRepository implements IRFIRepository {
+  private hybrid = new HybridRFIRepository();
+  private postgres = new PostgresRfiRepository();
+
+  private getDelegate(): IRFIRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createRFI(data: any): Promise<RFI> {
+    return this.getDelegate().createRFI(data);
+  }
+  getRFIById(id: string): Promise<RFI | null> {
+    return this.getDelegate().getRFIById(id);
+  }
+  listRFIsByProject(projectId: string): Promise<RFI[]> {
+    return this.getDelegate().listRFIsByProject(projectId);
+  }
+  updateRFI(id: string, updates: Partial<RFI>): Promise<RFI> {
+    return this.getDelegate().updateRFI(id, updates);
+  }
+  getNextRFINumber(projectId: string): Promise<string> {
+    return this.getDelegate().getNextRFINumber(projectId);
+  }
+}
+
+export const rfiRepository = new DelegatingRFIRepository();

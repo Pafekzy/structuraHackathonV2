@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { QAQCInspection } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresQaqcInspectionRepository } from '../db/postgresRepositories';
 
 export interface IQAQCInspectionRepository {
   createInspection(inspection: QAQCInspection): Promise<QAQCInspection>;
@@ -182,4 +184,32 @@ export class HybridQAQCInspectionRepository implements IQAQCInspectionRepository
   }
 }
 
-export const qaqcRepository = new HybridQAQCInspectionRepository();
+class DelegatingQAQCInspectionRepository implements IQAQCInspectionRepository {
+  private hybrid = new HybridQAQCInspectionRepository();
+  private postgres = new PostgresQaqcInspectionRepository();
+
+  private getDelegate(): IQAQCInspectionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createInspection(inspection: QAQCInspection): Promise<QAQCInspection> {
+    return this.getDelegate().createInspection(inspection);
+  }
+  getInspectionById(id: string): Promise<QAQCInspection | null> {
+    return this.getDelegate().getInspectionById(id);
+  }
+  listInspectionsByProject(projectId: string): Promise<QAQCInspection[]> {
+    return this.getDelegate().listInspectionsByProject(projectId);
+  }
+  listInspectionsByMilestone(milestoneId: string): Promise<QAQCInspection[]> {
+    return this.getDelegate().listInspectionsByMilestone(milestoneId);
+  }
+  updateInspection(id: string, updates: Partial<QAQCInspection>): Promise<QAQCInspection> {
+    return this.getDelegate().updateInspection(id, updates);
+  }
+}
+
+export const qaqcRepository = new DelegatingQAQCInspectionRepository();

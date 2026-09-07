@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { NonConformanceReport } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresNcrRepository } from '../db/postgresRepositories';
 
 export interface INCRRepository {
   createNCR(ncr: NonConformanceReport): Promise<NonConformanceReport>;
@@ -162,4 +164,32 @@ export class HybridNCRRepository implements INCRRepository {
   }
 }
 
-export const ncrRepository = new HybridNCRRepository();
+class DelegatingNCRRepository implements INCRRepository {
+  private hybrid = new HybridNCRRepository();
+  private postgres = new PostgresNcrRepository();
+
+  private getDelegate(): INCRRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createNCR(ncr: NonConformanceReport): Promise<NonConformanceReport> {
+    return this.getDelegate().createNCR(ncr);
+  }
+  getNCRById(id: string): Promise<NonConformanceReport | null> {
+    return this.getDelegate().getNCRById(id);
+  }
+  listNCRsByProject(projectId: string): Promise<NonConformanceReport[]> {
+    return this.getDelegate().listNCRsByProject(projectId);
+  }
+  listNCRsByMilestone(milestoneId: string): Promise<NonConformanceReport[]> {
+    return this.getDelegate().listNCRsByMilestone(milestoneId);
+  }
+  updateNCR(id: string, updates: Partial<NonConformanceReport>): Promise<NonConformanceReport> {
+    return this.getDelegate().updateNCR(id, updates);
+  }
+}
+
+export const ncrRepository = new DelegatingNCRRepository();

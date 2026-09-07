@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectNotification } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresNotificationRepository } from '../db/postgresRepositories';
 
 export interface INotificationRepository {
   createNotification(notification: ProjectNotification): Promise<ProjectNotification>;
@@ -306,4 +308,44 @@ export class HybridNotificationRepository implements INotificationRepository {
   }
 }
 
-export const notificationRepository = new HybridNotificationRepository();
+class DelegatingNotificationRepository implements INotificationRepository {
+  private hybrid = new HybridNotificationRepository();
+  private postgres = new PostgresNotificationRepository();
+
+  private getDelegate(): INotificationRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createNotification(notification: ProjectNotification): Promise<ProjectNotification> {
+    return this.getDelegate().createNotification(notification);
+  }
+  getNotificationById(id: string): Promise<ProjectNotification | null> {
+    return this.getDelegate().getNotificationById(id);
+  }
+  listNotificationsByRecipient(projectId: string, recipientUserId: string): Promise<ProjectNotification[]> {
+    return this.getDelegate().listNotificationsByRecipient(projectId, recipientUserId);
+  }
+  listNotificationsByProject(projectId: string): Promise<ProjectNotification[]> {
+    return this.getDelegate().listNotificationsByProject(projectId);
+  }
+  getNotificationsForUser(projectId: string, recipientUserId: string): Promise<ProjectNotification[]> {
+    return this.getDelegate().getNotificationsForUser(projectId, recipientUserId);
+  }
+  getNotificationsByProjectId(projectId: string): Promise<ProjectNotification[]> {
+    return this.getDelegate().getNotificationsByProjectId(projectId);
+  }
+  markAsRead(id: string): Promise<ProjectNotification | null> {
+    return this.getDelegate().markAsRead(id);
+  }
+  markAllAsRead(projectId: string, recipientUserId: string): Promise<number> {
+    return this.getDelegate().markAllAsRead(projectId, recipientUserId);
+  }
+  deleteNotification(id: string): Promise<boolean> {
+    return this.getDelegate().deleteNotification(id);
+  }
+}
+
+export const notificationRepository = new DelegatingNotificationRepository();

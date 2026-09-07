@@ -3,6 +3,8 @@ import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { FinancialInstruction } from '../../src/types';
 import { safeAtomicWriteJsonFile, safeReadJsonFile, ensureDirectoryExists } from '../utils/atomicPersistence';
+import { getPersistenceMode } from '../db/database';
+import { PostgresFinancialInstructionRepository } from '../db/postgresRepositories';
 
 export interface IFinancialInstructionRepository {
   createInstruction(instruction: FinancialInstruction): Promise<FinancialInstruction>;
@@ -11,6 +13,8 @@ export interface IFinancialInstructionRepository {
   getInstructionByIdempotencyKey(projectId: string, idempotencyKey: string): Promise<FinancialInstruction | null>;
   getInstructionByMilestoneId(milestoneId: string): Promise<FinancialInstruction | null>;
   listInstructionsByProject(projectId: string): Promise<FinancialInstruction[]>;
+  listByProject(projectId: string): Promise<FinancialInstruction[]>;
+  getInstructionsByProjectId(projectId: string): Promise<FinancialInstruction[]>;
   updateInstruction(id: string, updates: Partial<FinancialInstruction>): Promise<FinancialInstruction | null>;
   update(id: string, updates: Partial<FinancialInstruction>): Promise<FinancialInstruction | null>;
   getNextInstructionNumber(projectId: string): Promise<string>;
@@ -119,6 +123,10 @@ class FinancialInstructionRepository implements IFinancialInstructionRepository 
     return this.listInstructionsByProject(projectId);
   }
 
+  async getInstructionsByProjectId(projectId: string): Promise<FinancialInstruction[]> {
+    return this.listInstructionsByProject(projectId);
+  }
+
   async updateInstruction(id: string, updates: Partial<FinancialInstruction>): Promise<FinancialInstruction | null> {
     this.ensureLoaded();
     const existing = await this.getInstructionById(id);
@@ -171,4 +179,53 @@ class FinancialInstructionRepository implements IFinancialInstructionRepository 
   }
 }
 
-export const financialInstructionRepository = new FinancialInstructionRepository();
+class HybridFinancialInstructionRepository implements IFinancialInstructionRepository {
+  private file = new FinancialInstructionRepository();
+  private postgres = new PostgresFinancialInstructionRepository();
+
+  private getDelegate(): IFinancialInstructionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.file;
+  }
+
+  createInstruction(instruction: FinancialInstruction): Promise<FinancialInstruction> {
+    return this.getDelegate().createInstruction(instruction);
+  }
+  getInstructionById(id: string): Promise<FinancialInstruction | null> {
+    return this.getDelegate().getInstructionById(id);
+  }
+  findById(id: string): Promise<FinancialInstruction | null> {
+    return this.getDelegate().findById(id);
+  }
+  getInstructionByIdempotencyKey(projectId: string, idempotencyKey: string): Promise<FinancialInstruction | null> {
+    return this.getDelegate().getInstructionByIdempotencyKey(projectId, idempotencyKey);
+  }
+  getInstructionByMilestoneId(milestoneId: string): Promise<FinancialInstruction | null> {
+    return this.getDelegate().getInstructionByMilestoneId(milestoneId);
+  }
+  listInstructionsByProject(projectId: string): Promise<FinancialInstruction[]> {
+    return this.getDelegate().listInstructionsByProject(projectId);
+  }
+  listByProject(projectId: string): Promise<FinancialInstruction[]> {
+    return this.getDelegate().listByProject(projectId);
+  }
+  getInstructionsByProjectId(projectId: string): Promise<FinancialInstruction[]> {
+    return this.getDelegate().getInstructionsByProjectId(projectId);
+  }
+  updateInstruction(id: string, updates: Partial<FinancialInstruction>): Promise<FinancialInstruction | null> {
+    return this.getDelegate().updateInstruction(id, updates);
+  }
+  update(id: string, updates: Partial<FinancialInstruction>): Promise<FinancialInstruction | null> {
+    return this.getDelegate().update(id, updates);
+  }
+  getNextInstructionNumber(projectId: string): Promise<string> {
+    return this.getDelegate().getNextInstructionNumber(projectId);
+  }
+  countInstructions(projectId: string): Promise<number> {
+    return this.getDelegate().countInstructions(projectId);
+  }
+}
+
+export const financialInstructionRepository = new HybridFinancialInstructionRepository();

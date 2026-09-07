@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { safeAtomicWriteJsonFile, safeReadJsonFile, ensureDirectoryExists } from '../utils/atomicPersistence';
+import { getPersistenceMode } from '../db/database';
+import { PostgresAuditEventRepository } from '../db/postgresRepositories';
 
 export type AuditAction =
   | 'ORGANIZATION_CREATED'
@@ -181,8 +183,12 @@ class FileAuditEventRepository implements IAuditEventRepository {
 class HybridAuditEventRepository implements IAuditEventRepository {
   private firestore = new FirestoreAuditEventRepository();
   private file = new FileAuditEventRepository();
+  private postgres = new PostgresAuditEventRepository();
 
   private getDelegate(): IAuditEventRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
     if (process.env.STRUCTURA_AUTH_MODE !== 'sandbox' && getFirebaseFirestore()) {
       return this.firestore;
     }

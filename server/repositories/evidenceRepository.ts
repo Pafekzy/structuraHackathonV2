@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectEvidence } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresEvidenceRepository } from '../db/postgresRepositories';
 
 export interface IEvidenceRepository {
   createEvidence(evidence: ProjectEvidence): Promise<ProjectEvidence>;
@@ -251,4 +253,32 @@ export class HybridEvidenceRepository implements IEvidenceRepository {
   }
 }
 
-export const evidenceRepository = new HybridEvidenceRepository();
+class DelegatingEvidenceRepository implements IEvidenceRepository {
+  private hybrid = new HybridEvidenceRepository();
+  private postgres = new PostgresEvidenceRepository();
+
+  private getDelegate(): IEvidenceRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createEvidence(evidence: ProjectEvidence): Promise<ProjectEvidence> {
+    return this.getDelegate().createEvidence(evidence);
+  }
+  getEvidenceById(id: string): Promise<ProjectEvidence | null> {
+    return this.getDelegate().getEvidenceById(id);
+  }
+  listEvidenceByProject(projectId: string): Promise<ProjectEvidence[]> {
+    return this.getDelegate().listEvidenceByProject(projectId);
+  }
+  listEvidenceByMilestone(projectId: string, milestoneId: string): Promise<ProjectEvidence[]> {
+    return this.getDelegate().listEvidenceByMilestone(projectId, milestoneId);
+  }
+  updateEvidence(id: string, updates: Partial<ProjectEvidence>): Promise<ProjectEvidence> {
+    return this.getDelegate().updateEvidence(id, updates);
+  }
+}
+
+export const evidenceRepository = new DelegatingEvidenceRepository();

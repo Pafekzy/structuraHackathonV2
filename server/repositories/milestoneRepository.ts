@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectMilestone } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresMilestoneRepository } from '../db/postgresRepositories';
 
 export interface IMilestoneRepository {
   createMilestone(milestone: ProjectMilestone): Promise<ProjectMilestone>;
@@ -332,4 +334,32 @@ export class HybridMilestoneRepository implements IMilestoneRepository {
   }
 }
 
-export const milestoneRepository = new HybridMilestoneRepository();
+class DelegatingMilestoneRepository implements IMilestoneRepository {
+  private hybrid = new HybridMilestoneRepository();
+  private postgres = new PostgresMilestoneRepository();
+
+  private getDelegate(): IMilestoneRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createMilestone(milestone: ProjectMilestone): Promise<ProjectMilestone> {
+    return this.getDelegate().createMilestone(milestone);
+  }
+  getMilestoneById(id: string): Promise<ProjectMilestone | null> {
+    return this.getDelegate().getMilestoneById(id);
+  }
+  listMilestonesByProject(projectId: string): Promise<ProjectMilestone[]> {
+    return this.getDelegate().listMilestonesByProject(projectId);
+  }
+  getMilestonesByProjectId(projectId: string): Promise<ProjectMilestone[]> {
+    return this.getDelegate().getMilestonesByProjectId(projectId);
+  }
+  updateMilestone(id: string, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone> {
+    return this.getDelegate().updateMilestone(id, updates);
+  }
+}
+
+export const milestoneRepository = new DelegatingMilestoneRepository();

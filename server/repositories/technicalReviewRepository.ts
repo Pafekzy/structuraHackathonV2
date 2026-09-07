@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectDirectorTechnicalReview } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresTechnicalReviewRepository } from '../db/postgresRepositories';
 
 export interface ITechnicalReviewRepository {
   createReview(review: ProjectDirectorTechnicalReview): Promise<ProjectDirectorTechnicalReview>;
@@ -149,4 +151,32 @@ export class HybridTechnicalReviewRepository implements ITechnicalReviewReposito
   }
 }
 
-export const technicalReviewRepository = new HybridTechnicalReviewRepository();
+class DelegatingTechnicalReviewRepository implements ITechnicalReviewRepository {
+  private hybrid = new HybridTechnicalReviewRepository();
+  private postgres = new PostgresTechnicalReviewRepository();
+
+  private getDelegate(): ITechnicalReviewRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createReview(review: ProjectDirectorTechnicalReview): Promise<ProjectDirectorTechnicalReview> {
+    return this.getDelegate().createReview(review);
+  }
+  getReviewById(id: string): Promise<ProjectDirectorTechnicalReview | null> {
+    return this.getDelegate().getReviewById(id);
+  }
+  listReviewsByProject(projectId: string): Promise<ProjectDirectorTechnicalReview[]> {
+    return this.getDelegate().listReviewsByProject(projectId);
+  }
+  listReviewsBySubmission(submissionId: string): Promise<ProjectDirectorTechnicalReview[]> {
+    return this.getDelegate().listReviewsBySubmission(submissionId);
+  }
+  updateReview(id: string, updates: Partial<ProjectDirectorTechnicalReview>): Promise<ProjectDirectorTechnicalReview> {
+    return this.getDelegate().updateReview(id, updates);
+  }
+}
+
+export const technicalReviewRepository = new DelegatingTechnicalReviewRepository();

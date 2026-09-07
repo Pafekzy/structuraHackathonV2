@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { OwnerMilestoneDecision } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresOwnerDecisionRepository } from '../db/postgresRepositories';
 
 export interface IOwnerDecisionRepository {
   createDecision(decision: OwnerMilestoneDecision): Promise<OwnerMilestoneDecision>;
@@ -135,4 +137,29 @@ export class HybridOwnerDecisionRepository implements IOwnerDecisionRepository {
   }
 }
 
-export const ownerDecisionRepository = new HybridOwnerDecisionRepository();
+class DelegatingOwnerDecisionRepository implements IOwnerDecisionRepository {
+  private hybrid = new HybridOwnerDecisionRepository();
+  private postgres = new PostgresOwnerDecisionRepository();
+
+  private getDelegate(): IOwnerDecisionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createDecision(decision: OwnerMilestoneDecision): Promise<OwnerMilestoneDecision> {
+    return this.getDelegate().createDecision(decision);
+  }
+  getDecisionById(id: string): Promise<OwnerMilestoneDecision | null> {
+    return this.getDelegate().getDecisionById(id);
+  }
+  listDecisionsByMilestone(milestoneId: string): Promise<OwnerMilestoneDecision[]> {
+    return this.getDelegate().listDecisionsByMilestone(milestoneId);
+  }
+  listDecisionsByProject(projectId: string): Promise<OwnerMilestoneDecision[]> {
+    return this.getDelegate().listDecisionsByProject(projectId);
+  }
+}
+
+export const ownerDecisionRepository = new DelegatingOwnerDecisionRepository();

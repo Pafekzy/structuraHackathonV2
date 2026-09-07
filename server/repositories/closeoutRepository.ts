@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectCloseout, CloseoutChecklistItem } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresCloseoutRepository } from '../db/postgresRepositories';
 
 export interface ICloseoutRepository {
   getCloseoutByProject(projectId: string): Promise<ProjectCloseout | null>;
@@ -246,6 +248,33 @@ class LocalFileCloseoutRepository implements ICloseoutRepository {
   }
 }
 
-export const closeoutRepository: ICloseoutRepository = getFirebaseFirestore()
-  ? new FirestoreCloseoutRepository()
-  : new LocalFileCloseoutRepository();
+class DelegatingCloseoutRepository implements ICloseoutRepository {
+  private file = new LocalFileCloseoutRepository();
+  private firestore = new FirestoreCloseoutRepository();
+  private postgres = new PostgresCloseoutRepository();
+
+  private getDelegate(): ICloseoutRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    if (getFirebaseFirestore()) {
+      return this.firestore;
+    }
+    return this.file;
+  }
+
+  getCloseoutByProject(projectId: string): Promise<ProjectCloseout | null> {
+    return this.getDelegate().getCloseoutByProject(projectId);
+  }
+  saveCloseout(closeout: ProjectCloseout): Promise<ProjectCloseout> {
+    return this.getDelegate().saveCloseout(closeout);
+  }
+  updateCloseout(projectId: string, updates: Partial<ProjectCloseout>): Promise<ProjectCloseout | null> {
+    return this.getDelegate().updateCloseout(projectId, updates);
+  }
+  updateChecklistItem(projectId: string, itemId: string, updates: Partial<CloseoutChecklistItem>): Promise<ProjectCloseout | null> {
+    return this.getDelegate().updateChecklistItem(projectId, itemId, updates);
+  }
+}
+
+export const closeoutRepository: ICloseoutRepository = new DelegatingCloseoutRepository();

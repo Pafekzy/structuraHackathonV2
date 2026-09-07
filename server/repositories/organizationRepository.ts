@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseAdmin, getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ensureDemoDataSeeded, DEMO_ORGANIZATION } from '../data/demoSeed';
+import { getPersistenceMode } from '../db/database';
+import { PostgresOrganizationRepository } from '../db/postgresRepositories';
 
 export type OrganizationType = 
   | 'INDIVIDUAL_DEVELOPER'
@@ -252,8 +254,12 @@ class FileOrganizationRepository implements IOrganizationRepository {
 class HybridOrganizationRepository implements IOrganizationRepository {
   private firestore = new FirestoreOrganizationRepository();
   private file = new FileOrganizationRepository();
+  private postgres = new PostgresOrganizationRepository();
 
   private getDelegate(): IOrganizationRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
     if (process.env.STRUCTURA_AUTH_MODE !== 'sandbox' && getFirebaseFirestore()) {
       return this.firestore;
     }

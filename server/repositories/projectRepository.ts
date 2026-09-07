@@ -3,6 +3,8 @@ import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ensureDemoDataSeeded, getDemoProjectById, getDemoAppointmentsByProject } from '../data/demoSeed';
 import { safeAtomicWriteJsonFile, safeReadJsonFile, ensureDirectoryExists } from '../utils/atomicPersistence';
+import { getPersistenceMode } from '../db/database';
+import { PostgresProjectRepository } from '../db/postgresRepositories';
 
 export type ProjectRole = 
   | 'OWNER_CLIENT'
@@ -280,8 +282,12 @@ class FileProjectRepository implements IProjectRepository {
 class HybridProjectRepository implements IProjectRepository {
   private firestore = new FirestoreProjectRepository();
   private file = new FileProjectRepository();
+  private postgres = new PostgresProjectRepository();
 
   private getDelegate(): IProjectRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
     if (process.env.STRUCTURA_AUTH_MODE !== 'sandbox' && getFirebaseFirestore()) {
       return this.firestore;
     }

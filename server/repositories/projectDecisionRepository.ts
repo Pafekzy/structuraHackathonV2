@@ -2,11 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectDecision } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresProjectDecisionRepository } from '../db/postgresRepositories';
 
 export interface IProjectDecisionRepository {
   createDecision(decision: ProjectDecision): Promise<ProjectDecision>;
   getDecisionById(id: string): Promise<ProjectDecision | null>;
   listDecisionsByProject(projectId: string): Promise<ProjectDecision[]>;
+  getDecisionsByProjectId(projectId: string): Promise<ProjectDecision[]>;
   updateDecision(id: string, updates: Partial<ProjectDecision>): Promise<ProjectDecision | null>;
 }
 
@@ -272,4 +275,32 @@ export class HybridProjectDecisionRepository implements IProjectDecisionReposito
   }
 }
 
-export const projectDecisionRepository = new HybridProjectDecisionRepository();
+class DelegatingProjectDecisionRepository implements IProjectDecisionRepository {
+  private hybrid = new HybridProjectDecisionRepository();
+  private postgres = new PostgresProjectDecisionRepository();
+
+  private getDelegate(): IProjectDecisionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createDecision(decision: ProjectDecision): Promise<ProjectDecision> {
+    return this.getDelegate().createDecision(decision);
+  }
+  getDecisionById(id: string): Promise<ProjectDecision | null> {
+    return this.getDelegate().getDecisionById(id);
+  }
+  listDecisionsByProject(projectId: string): Promise<ProjectDecision[]> {
+    return this.getDelegate().listDecisionsByProject(projectId);
+  }
+  getDecisionsByProjectId(projectId: string): Promise<ProjectDecision[]> {
+    return this.getDelegate().getDecisionsByProjectId(projectId);
+  }
+  updateDecision(id: string, updates: Partial<ProjectDecision>): Promise<ProjectDecision | null> {
+    return this.getDelegate().updateDecision(id, updates);
+  }
+}
+
+export const projectDecisionRepository = new DelegatingProjectDecisionRepository();

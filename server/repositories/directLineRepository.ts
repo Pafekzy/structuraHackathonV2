@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ChannelType, DirectLineMessageType, ProjectConversation, ProjectMessage, ProjectRole } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresDirectLineRepository } from '../db/postgresRepositories';
 
 export interface IDirectLineRepository {
   getOrCreateConversation(projectId: string, channelType: ChannelType): Promise<ProjectConversation>;
@@ -372,4 +374,42 @@ export class HybridDirectLineRepository implements IDirectLineRepository {
   }
 }
 
-export const directLineRepository = new HybridDirectLineRepository();
+class DelegatingDirectLineRepository implements IDirectLineRepository {
+  private hybrid = new HybridDirectLineRepository();
+  private postgres = new PostgresDirectLineRepository();
+
+  private getDelegate(): IDirectLineRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  getOrCreateConversation(projectId: string, channelType: ChannelType): Promise<ProjectConversation> {
+    return this.getDelegate().getOrCreateConversation(projectId, channelType);
+  }
+  getConversationsByProject(projectId: string): Promise<ProjectConversation[]> {
+    return this.getDelegate().getConversationsByProject(projectId);
+  }
+  getConversationById(id: string): Promise<ProjectConversation | null> {
+    return this.getDelegate().getConversationById(id);
+  }
+  addMessage(data: {
+    projectId: string;
+    channelType: ChannelType;
+    senderUserId: string;
+    senderRole: ProjectRole;
+    senderName: string;
+    messageType: DirectLineMessageType;
+    subject?: string;
+    content: string;
+    relatedEntityId?: string;
+  }): Promise<ProjectMessage> {
+    return this.getDelegate().addMessage(data);
+  }
+  getMessagesByChannel(projectId: string, channelType: ChannelType): Promise<ProjectMessage[]> {
+    return this.getDelegate().getMessagesByChannel(projectId, channelType);
+  }
+}
+
+export const directLineRepository = new DelegatingDirectLineRepository();

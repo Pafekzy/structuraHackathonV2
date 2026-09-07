@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { PunchItem } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresPunchItemRepository } from '../db/postgresRepositories';
 
 export interface IPunchItemRepository {
   createPunchItem(item: PunchItem): Promise<PunchItem>;
@@ -224,6 +226,39 @@ class LocalFilePunchItemRepository implements IPunchItemRepository {
   }
 }
 
-export const punchItemRepository: IPunchItemRepository = getFirebaseFirestore()
-  ? new FirestorePunchItemRepository()
-  : new LocalFilePunchItemRepository();
+class DelegatingPunchItemRepository implements IPunchItemRepository {
+  private file = new LocalFilePunchItemRepository();
+  private firestore = new FirestorePunchItemRepository();
+  private postgres = new PostgresPunchItemRepository();
+
+  private getDelegate(): IPunchItemRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    if (getFirebaseFirestore()) {
+      return this.firestore;
+    }
+    return this.file;
+  }
+
+  createPunchItem(item: PunchItem): Promise<PunchItem> {
+    return this.getDelegate().createPunchItem(item);
+  }
+  getPunchItemById(id: string): Promise<PunchItem | null> {
+    return this.getDelegate().getPunchItemById(id);
+  }
+  listPunchItemsByProject(projectId: string): Promise<PunchItem[]> {
+    return this.getDelegate().listPunchItemsByProject(projectId);
+  }
+  listPunchItemsByMilestone(projectId: string, milestoneId: string): Promise<PunchItem[]> {
+    return this.getDelegate().listPunchItemsByMilestone(projectId, milestoneId);
+  }
+  updatePunchItem(id: string, updates: Partial<PunchItem>): Promise<PunchItem | null> {
+    return this.getDelegate().updatePunchItem(id, updates);
+  }
+  getNextPunchNumber(projectId: string): Promise<string> {
+    return this.getDelegate().getNextPunchNumber(projectId);
+  }
+}
+
+export const punchItemRepository: IPunchItemRepository = new DelegatingPunchItemRepository();

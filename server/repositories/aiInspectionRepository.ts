@@ -3,6 +3,8 @@ import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { AIInspectionAnalysis } from '../../src/types';
 import { safeAtomicWriteJsonFile, safeReadJsonFile, ensureDirectoryExists } from '../utils/atomicPersistence';
+import { getPersistenceMode } from '../db/database';
+import { PostgresAiInspectionRepository } from '../db/postgresRepositories';
 
 export interface IAIInspectionRepository {
   createAnalysis(analysis: AIInspectionAnalysis): Promise<AIInspectionAnalysis>;
@@ -147,4 +149,32 @@ export class HybridAIInspectionRepository implements IAIInspectionRepository {
   }
 }
 
-export const aiInspectionRepository = new HybridAIInspectionRepository();
+class DelegatingAIInspectionRepository implements IAIInspectionRepository {
+  private hybrid = new HybridAIInspectionRepository();
+  private postgres = new PostgresAiInspectionRepository();
+
+  private getDelegate(): IAIInspectionRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    return this.hybrid;
+  }
+
+  createAnalysis(analysis: AIInspectionAnalysis): Promise<AIInspectionAnalysis> {
+    return this.getDelegate().createAnalysis(analysis);
+  }
+  getAnalysisById(id: string): Promise<AIInspectionAnalysis | null> {
+    return this.getDelegate().getAnalysisById(id);
+  }
+  listAnalysesByMilestone(milestoneId: string): Promise<AIInspectionAnalysis[]> {
+    return this.getDelegate().listAnalysesByMilestone(milestoneId);
+  }
+  listAnalysesByProject(projectId: string): Promise<AIInspectionAnalysis[]> {
+    return this.getDelegate().listAnalysesByProject(projectId);
+  }
+  updateAnalysis(id: string, updates: Partial<AIInspectionAnalysis>): Promise<AIInspectionAnalysis> {
+    return this.getDelegate().updateAnalysis(id, updates);
+  }
+}
+
+export const aiInspectionRepository = new DelegatingAIInspectionRepository();

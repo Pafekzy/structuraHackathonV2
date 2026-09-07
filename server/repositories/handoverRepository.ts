@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ProjectHandover, HandoverChecklistItem } from '../../src/types';
+import { getPersistenceMode } from '../db/database';
+import { PostgresHandoverRepository } from '../db/postgresRepositories';
 
 export interface IHandoverRepository {
   getHandoverByProject(projectId: string): Promise<ProjectHandover | null>;
@@ -212,6 +214,33 @@ class LocalFileHandoverRepository implements IHandoverRepository {
   }
 }
 
-export const handoverRepository: IHandoverRepository = getFirebaseFirestore()
-  ? new FirestoreHandoverRepository()
-  : new LocalFileHandoverRepository();
+class DelegatingHandoverRepository implements IHandoverRepository {
+  private file = new LocalFileHandoverRepository();
+  private firestore = new FirestoreHandoverRepository();
+  private postgres = new PostgresHandoverRepository();
+
+  private getDelegate(): IHandoverRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgres;
+    }
+    if (getFirebaseFirestore()) {
+      return this.firestore;
+    }
+    return this.file;
+  }
+
+  getHandoverByProject(projectId: string): Promise<ProjectHandover | null> {
+    return this.getDelegate().getHandoverByProject(projectId);
+  }
+  saveHandover(handover: ProjectHandover): Promise<ProjectHandover> {
+    return this.getDelegate().saveHandover(handover);
+  }
+  updateHandover(projectId: string, updates: Partial<ProjectHandover>): Promise<ProjectHandover | null> {
+    return this.getDelegate().updateHandover(projectId, updates);
+  }
+  updateChecklistItem(projectId: string, itemId: string, updates: Partial<HandoverChecklistItem>): Promise<ProjectHandover | null> {
+    return this.getDelegate().updateChecklistItem(projectId, itemId, updates);
+  }
+}
+
+export const handoverRepository: IHandoverRepository = new DelegatingHandoverRepository();

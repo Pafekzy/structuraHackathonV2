@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { getFirebaseAdmin, getFirebaseFirestore } from '../auth/firebaseAdmin';
 import { ensureDemoDataSeeded, DEMO_USERS } from '../data/demoSeed';
+import { getPersistenceMode } from '../db/database';
+import { PostgresUserRepository } from '../db/postgresRepositories';
 
 export type PrimaryRole =
   | 'OWNER_CLIENT'
@@ -214,8 +216,12 @@ class FileUserRepository implements IUserRepository {
 export class UserRepository implements IUserRepository {
   private firestoreRepo = new FirestoreUserRepository();
   private fileRepo = new FileUserRepository();
+  private postgresRepo = new PostgresUserRepository();
 
   private getActiveRepo(): IUserRepository {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo;
+    }
     const adminApp = getFirebaseAdmin();
     if (adminApp) {
       return this.firestoreRepo;
@@ -224,7 +230,10 @@ export class UserRepository implements IUserRepository {
   }
 
   async create(profile: UserProfile): Promise<UserProfile> {
-    // Always write to active repo, and mirror to local file repo for resilience
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.create(profile);
+    }
+    // Always write to active repo, and mirror to local file repo for resilience in file mode
     try {
       const active = this.getActiveRepo();
       const res = await active.create(profile);
@@ -239,6 +248,9 @@ export class UserRepository implements IUserRepository {
   }
 
   async findById(id: string): Promise<UserProfile | null> {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.findById(id);
+    }
     try {
       const res = await this.getActiveRepo().findById(id);
       if (res) return res;
@@ -251,6 +263,9 @@ export class UserRepository implements IUserRepository {
   }
 
   async findByAuthUserId(authUserId: string): Promise<UserProfile | null> {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.findByAuthUserId(authUserId);
+    }
     try {
       const res = await this.getActiveRepo().findByAuthUserId(authUserId);
       if (res) return res;
@@ -263,6 +278,9 @@ export class UserRepository implements IUserRepository {
   }
 
   async findByEmail(email: string): Promise<UserProfile | null> {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.findByEmail(email);
+    }
     try {
       const res = await this.getActiveRepo().findByEmail(email);
       if (res) return res;
@@ -276,6 +294,9 @@ export class UserRepository implements IUserRepository {
   }
 
   async update(id: string, updates: Partial<UserProfile>): Promise<UserProfile | null> {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.update(id, updates);
+    }
     try {
       const active = this.getActiveRepo();
       const res = await active.update(id, updates);
@@ -289,6 +310,9 @@ export class UserRepository implements IUserRepository {
   }
 
   async listAll(): Promise<UserProfile[]> {
+    if (getPersistenceMode() === 'database') {
+      return this.postgresRepo.listAll();
+    }
     try {
       return await this.getActiveRepo().listAll();
     } catch (e) {
